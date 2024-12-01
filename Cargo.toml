@@ -25,8 +25,12 @@ itertools = "0.11.0"
 # EVM based crates
 cfmms = "0.6.2"
 ethers-flashbots = { git = "https://github.com/onbjerg/ethers-flashbots" }
-ethers = {version = "2.0", features = ["abigen", "ws", "rustls"]}
-
+ethers = {version = "2.0", features = ["abigen", "ws", "rustls","ipc"]}
+ethers-providers = "2.0"
+ethers-core = "2.0"
+ethers-contract = { version = "2.0", default-features = false }
+# 添加 winapi 依赖并启用 winerror feature
+winapi = { version = "0.3", features = ["winerror"] }
 # logging
 indoc = "2"
 fern = {version = "0.6.2", features = ["colored"]}
