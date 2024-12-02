@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use ethers::types::U64;
+use ethers::types::{H160, U64};
 
 #[derive(Debug, Clone)]
 pub struct Env {
@@ -36,4 +36,10 @@ impl Env {
             bot_address: get_env("BOT_ADDRESS"),
         }
     }
+}
+pub fn get_blacklist_tokens() -> Vec<H160> {
+    return vec!["0x9469603F3Efbcf17e4A5868d81C701BDbD222555"]
+        .into_iter()
+        .map(|addr| H160::from_str(addr).unwrap())
+        .collect();
 }

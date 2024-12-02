@@ -17,6 +17,25 @@ pub struct ArbPath {
     pub zero_for_one_2: bool, // 第二个池子的交易方向
     pub zero_for_one_3: bool, // 第三个池子的交易方向
 }
+impl ArbPath {
+    fn _get_pool(&self, i: u8) -> &Pool {
+        match i {
+            0 => Some(&self.pool_1),
+            1 => Some(&self.pool_2),
+            2 => Some(&self.pool_3),
+            _ => None,
+        }
+        .unwrap()
+    }
+    pub fn should_blacklist(&self, blacklist_tokens: &Vec<H160>) -> bool {
+        for i in 0..self.nhop {
+            let pool = self._get_pool(i);
+            return blacklist_tokens.contains(&pool.token0)
+                || blacklist_tokens.contains(&pool.token1);
+        }
+        false
+    }
+}
 // 生成所有的交换路径 多跳为3
 // e:
 // USDC -> WETH (池子1)
