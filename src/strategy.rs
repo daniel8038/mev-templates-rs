@@ -6,7 +6,7 @@ use std::{collections::HashMap, str::FromStr};
 use tokio::sync::broadcast::Sender;
 
 use crate::pools::Pool;
-use crate::utils::batch_get_uniswap_v2_reserves;
+use crate::utils::{batch_get_uniswap_v2_reserves, get_touched_pool_reserves};
 use crate::{
     constants::{get_blacklist_tokens, Env},
     paths::generate_triangular_paths,
@@ -44,7 +44,27 @@ pub async fn event_handler(provider: Arc<Provider<Ws>>, event_sender: Sender<Eve
     // cloned() - 克隆每个 Pool
     // collect() - 收集到一个新的 Vec 中
     let pools_vec: Vec<Pool> = pools.values().cloned().collect();
-    let reserves = batch_get_uniswap_v2_reserves(env.https_url.clone(), pools_vec.clone());
+    let reserves = batch_get_uniswap_v2_reserves(env.https_url.clone(), pools_vec.clone()).await;
+
     // 订阅事件
     let mut event_receiver = event_sender.subscribe();
+    //
+    loop {
+        match event_receiver.recv().await {
+            Ok(event) => match event {
+                Event::Block(block) => {
+                    info!("{:?}", block);
+                    let touched_reserves =
+                        match get_touched_pool_reserves(provider, block.block_number).await {};
+                }
+                Event::PendingTx(_) => {
+                    // not using pending tx
+                }
+                Event::Log(_) => {
+                    // not using logs
+                }
+            },
+            Err(_) => {}
+        }
+    }
 }

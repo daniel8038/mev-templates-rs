@@ -2,11 +2,11 @@ use std::{sync::Arc, time::Instant};
 
 use anyhow::Result;
 use ethers::{
-    abi,
-    types::{H160, H256, U256},
+    abi::{self, decode, ParamType, Token},
+    types::{Filter, H160, H256, U256, U64},
 };
 use ethers_contract::{self, Contract, Multicall};
-use ethers_providers::{Http, Provider};
+use ethers_providers::{Http, Middleware, Provider, Ws};
 use fern::colors::{Color, ColoredLevelConfig};
 use hashbrown::HashMap;
 use log::{info, LevelFilter};
@@ -143,4 +143,53 @@ pub async fn batch_get_uniswap_v2_reserves(
         start_time.elapsed().as_secs()
     );
     reserves
+}
+pub async fn get_touched_pool_reserves(
+    provider: Arc<Provider<Ws>>,
+    block_number: U64,
+) -> Result<HashMap<H160, Reserve>> {
+    //对应 reserve0 和 reserve1
+    let sync_event = "Sync(uint112,uint112)";
+    // 创建事件过滤器
+    let event_filter = Filter::new()
+        .from_block(block_number)
+        .to_block(block_number)
+        .event(sync_event);
+    // 获取日志
+    let logs = provider.get_logs(&event_filter).await?;
+    let mut tx_idx = HashMap::new(); // 存储每个池子最新的交易索引
+    let mut reserves = HashMap::new(); // 存储每个池子的最新储备量
+
+    //
+    for log in &logs {
+        // 解码日志数据
+        let decoded = decode(&[ParamType::Uint(256), ParamType::Uint(256)], &log.data);
+        match decoded {
+            Ok(data) => {
+                // 区块中的第一笔交易索引是0，第二笔是1，依此类推
+                //  获取交易索引 获取交易索引:主要作用是确保我们获取到的是池子在该区块中的最新状态
+                let idx = log.transaction_index.unwrap_or_default();
+                //  获取该池子之前的交易索引（如果有）
+                let prev_tx_idx = tx_idx.get(&log.address);
+                // 判断是否需要更新
+                // tx_idx 记录的索引 已经小于 最新的索引值 证明有新的储备量变化
+                let update = (*prev_tx_idx.unwrap_or(&U64::zero())) <= idx;
+                if update {
+                    let reserve0 = match data[0] {
+                        Token::Uint(rs) => rs,
+                        _ => U256::zero(),
+                    };
+                    let reserve1 = match data[1] {
+                        Token::Uint(rs) => rs,
+                        _ => U256::zero(),
+                    };
+                    let reserve = Reserve { reserve0, reserve1 };
+                    reserves.insert(log.address, reserve);
+                    tx_idx.insert(log.address, idx);
+                }
+            }
+            Err(_) => {}
+        }
+    }
+    Ok(reserves)
 }
