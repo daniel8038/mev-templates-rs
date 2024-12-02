@@ -1,11 +1,13 @@
-use ethers::types::{H160, U256};
+use ethers::types::{Address, H160, U256};
 use ethers_providers::{Provider, Ws};
 use log::info;
 use std::sync::Arc;
 use std::{collections::HashMap, str::FromStr};
 use tokio::sync::broadcast::Sender;
 
+use crate::constants::WEI;
 use crate::pools::Pool;
+use crate::simulator::UniswapV2Simulator;
 use crate::utils::{batch_get_uniswap_v2_reserves, get_touched_pool_reserves};
 use crate::{
     constants::{get_blacklist_tokens, Env},
@@ -105,7 +107,56 @@ pub async fn event_handler(provider: Arc<Provider<Ws>>, event_sender: Sender<Eve
                             }
                         }
                     }
+                    // 获取 USDC-WETH 池子信息
+                    let usdc_weth_address =
+                        Address::from_str("0x397FF1542f962076d0BFE58eA045FfA2d347ACa0").unwrap();
+                    let pool = pools.get(&usdc_weth_address).unwrap();
+                    let reserve = reserves.get(&usdc_weth_address).unwrap();
+                    // 根据公式 计算 WETH 价格
+                    let weth_price = UniswapV2Simulator::reserves_to_price(
+                        reserve.reserve0,
+                        reserve.reserve1,
+                        pool.decimals0,
+                        pool.decimals1,
+                        false,
+                    );
+                    // 获取下一个区块的基础 gas 费
+                    let base_fee = block.next_base_fee;
+                    // 预估 gas 使用量
+                    let estimated_gas_usage = U256::from(550000);
+                    // 计算总 gas 成本（以 wei 为单位）
+                    let gas_cost_in_wei = base_fee * estimated_gas_usage;
+                    // 转换为 WMATIC
+                    let gas_cost_in_wmatic =
+                        (gas_cost_in_wei.as_u64() as f64) / ((*WEI).as_u64() as f64);
+                    // 转换为 USDC
+                    let gas_cost_in_usdc = weth_price * gas_cost_in_wmatic;
+                    // 调整精度
+                    let gas_cost_in_usdc =
+                        U256::from((gas_cost_in_usdc * ((10 as f64).powi(usdc_decimals))) as u64);
                     //
+                    let mut sorted_spreads: Vec<_> = spreads.iter().collect();
+                    sorted_spreads.sort_by_key(|x| x.1);
+                    sorted_spreads.reverse();
+                    // 遍历排序后的套利机会
+                    for spread in sorted_spreads {
+                        let path_idx = spread.0;
+                        let path = &paths[*path_idx];
+                        // 优化输入金额
+                        let opt = path.optimize_amount_in(U256::from(1000), 10, &reserves);
+                        // 计算扣除 gas 后的净利润
+                        let excess_profit =
+                            (opt.1.as_u128() as i128) - (gas_cost_in_usdc.as_u128() as i128);
+
+                        // TODO
+                        if excess_profit > 0 {
+                            // 构建套利交易
+                            // 签名交易
+                            // 发送交易
+                            // 监控交易状态
+                            // 处理交易结果
+                        }
+                    }
                 }
                 Event::PendingTx(_) => {
                     // not using pending tx

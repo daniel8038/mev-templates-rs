@@ -1,6 +1,9 @@
 use std::{collections::HashMap, time::Instant};
 
-use ethers::types::{H160, U256};
+use ethers::{
+    abi,
+    types::{Address, H160, U256},
+};
 use indicatif::{ProgressBar, ProgressStyle};
 use itertools::Itertools;
 
@@ -9,7 +12,22 @@ use crate::{
     simulator::UniswapV2Simulator,
     utils::Reserve,
 };
+#[derive(Debug, Clone)]
+pub struct PathParam {
+    pub router: Address,
+    pub token_in: Address,
+    pub token_out: Address,
+}
 
+impl PathParam {
+    pub fn make_params(&self) -> Vec<abi::Token> {
+        vec![
+            abi::Token::Address(self.router.into()),
+            abi::Token::Address(self.token_in.into()),
+            abi::Token::Address(self.token_out.into()),
+        ]
+    }
+}
 #[derive(Debug, Clone)]
 // 三角套利路径
 pub struct ArbPath {
@@ -86,6 +104,76 @@ impl ArbPath {
                 UniswapV2Simulator::get_amount_out(amount_out, reserve_in, reserve_out, fee)?;
         }
         Some(amount_out)
+    }
+    // 优化输入金额，找到最佳套利数量
+    // 交易量越大，滑点越大
+    // 滑点会降低实际获得的代币数量
+    // 当滑点损失超过套利利润时，继续增加输入反而会减少利润
+    pub fn optimize_amount_in(
+        &self,
+        max_amount_in: U256,               // 最大输入金额
+        step_size: usize,                  // 每次增加的步长
+        reserves: &HashMap<H160, Reserve>, // 所有池子的储备量
+    ) -> (U256, U256) {
+        // 获取输入代币的小数位数
+        let token_in_decimals = if self.zero_for_one_1 {
+            self.pool_1.decimals0
+        } else {
+            self.pool_1.decimals1
+        };
+        // 初始化最优值
+        let mut optimized_in = U256::zero(); // 最优输入金额
+        let mut profit = 0; // 最大利润
+                            // 逐步增加输入金额寻找最优值
+        for amount_in in (0..max_amount_in.as_u64()).step_by(step_size) {
+            let amount_in = U256::from(amount_in);
+            // 计算单位（考虑代币小数位）
+            let unit = U256::from(10).pow(U256::from(token_in_decimals));
+            // 模拟这个输入金额的交易路径
+            if let Some(amount_out) = self.simulate_v2_path(amount_in, &reserves) {
+                // 计算这次尝试的利润
+                let this_profit =
+                    (amount_out.as_u128() as i128) - ((amount_in * unit).as_u128() as i128);
+                // 如果利润更高，更新最优值
+                if this_profit >= profit {
+                    optimized_in = amount_in;
+                    profit = this_profit;
+                } else {
+                    // 如果利润开始下降，说明找到了最优点
+                    break;
+                }
+            }
+        }
+
+        (optimized_in, U256::from(profit))
+    }
+    // 将交易路径转换为路由参数
+    pub fn to_path_params(&self, routers: &Vec<H160>) -> Vec<PathParam> {
+        let mut path_params = Vec::new();
+        // 遍历路径中的每一跳
+        for i in 0..self.nhop {
+            // 获取当前池子和交易方向
+            let pool = self._get_pool(i);
+            let zero_for_one = self._get_zero_for_one(i);
+            let token_in;
+            let token_out;
+            // 根据交易方向确定输入输出代币
+            if zero_for_one {
+                token_in = pool.token0;
+                token_out = pool.token1;
+            } else {
+                token_in = pool.token1;
+                token_out = pool.token0;
+            }
+            // 创建路径参数
+            let param = PathParam {
+                router: routers[i as usize], // 使用对应的路由合约
+                token_in: token_in,          // 输入代币
+                token_out: token_out,        // 输出代币
+            };
+            path_params.push(param);
+        }
+        path_params
     }
 }
 // 生成所有的交换路径 多跳为3

@@ -1,7 +1,16 @@
+use ethers::{
+    prelude::Lazy,
+    types::{Address, H160, U256, U64},
+};
 use std::str::FromStr;
+// 普通静态变量必须在编译时就能确定值
+// 复杂计算或运行时的值无法直接用作静态变量
+// Lazy 允许第一次访问时才进行初始化
+pub static WEI: Lazy<U256> = Lazy::new(|| U256::from(10).pow(U256::from(18)));
+pub static GWEI: Lazy<U256> = Lazy::new(|| U256::from(10).pow(U256::from(9)));
 
-use ethers::types::{H160, U64};
-
+pub static ZERO_ADDRESS: Lazy<Address> =
+    Lazy::new(|| Address::from_str("0x0000000000000000000000000000000000000000").unwrap());
 #[derive(Debug, Clone)]
 pub struct Env {
     pub https_url: String,
