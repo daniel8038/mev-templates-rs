@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Instant};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use anyhow::Result;
 use ethers::{
@@ -8,7 +8,6 @@ use ethers::{
 use ethers_contract::{self, Contract, Multicall};
 use ethers_providers::{Http, Middleware, Provider, Ws};
 use fern::colors::{Color, ColoredLevelConfig};
-use hashbrown::HashMap;
 use log::{info, LevelFilter};
 use rand::Rng;
 

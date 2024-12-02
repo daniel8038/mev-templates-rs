@@ -1,10 +1,14 @@
-use std::time::Instant;
+use std::{collections::HashMap, time::Instant};
 
-use ethers::types::H160;
+use ethers::types::{H160, U256};
 use indicatif::{ProgressBar, ProgressStyle};
 use itertools::Itertools;
 
-use crate::pools::{self, Pool};
+use crate::{
+    pools::{self, Pool},
+    simulator::UniswapV2Simulator,
+    utils::Reserve,
+};
 
 #[derive(Debug, Clone)]
 // 三角套利路径
@@ -18,7 +22,22 @@ pub struct ArbPath {
     pub zero_for_one_3: bool, // 第三个池子的交易方向
 }
 impl ArbPath {
-    fn _get_pool(&self, i: u8) -> &Pool {
+    pub fn has_pool(&self, pool: &H160) -> bool {
+        let is_pool_1 = self.pool_1.address == *pool;
+        let is_pool_2 = self.pool_2.address == *pool;
+        let is_pool_3 = self.pool_3.address == *pool;
+        return is_pool_1 || is_pool_2 || is_pool_3;
+    }
+    pub fn _get_zero_for_one(&self, i: u8) -> bool {
+        match i {
+            0 => Some(self.zero_for_one_1),
+            1 => Some(self.zero_for_one_2),
+            2 => Some(self.zero_for_one_3),
+            _ => None,
+        }
+        .unwrap()
+    }
+    pub fn _get_pool(&self, i: u8) -> &Pool {
         match i {
             0 => Some(&self.pool_1),
             1 => Some(&self.pool_2),
@@ -34,6 +53,39 @@ impl ArbPath {
                 || blacklist_tokens.contains(&pool.token1);
         }
         false
+    }
+    pub fn simulate_v2_path(
+        &self,
+        amount_in: U256,
+        reserves: &HashMap<H160, Reserve>,
+    ) -> Option<U256> {
+        let token_in_decimals = if self.zero_for_one_1 {
+            self.pool_1.decimals0
+        } else {
+            self.pool_2.decimals1
+        };
+        let uint = U256::from(10).pow(U256::from(token_in_decimals));
+        let mut amount_out = amount_in * uint;
+        for i in 0..self.nhop {
+            let pool = self._get_pool(i);
+            let zero_for_one = self._get_zero_for_one(i);
+            let reserve = reserves.get(&pool.address)?;
+            let reserve0 = reserve.reserve0;
+            let reserve1 = reserve.reserve1;
+            let fee = U256::from(pool.fee);
+            let reserve_in;
+            let reserve_out;
+            if zero_for_one {
+                reserve_in = reserve0;
+                reserve_out = reserve1;
+            } else {
+                reserve_in = reserve1;
+                reserve_out = reserve0;
+            }
+            amount_out =
+                UniswapV2Simulator::get_amount_out(amount_out, reserve_in, reserve_out, fee)?;
+        }
+        Some(amount_out)
     }
 }
 // 生成所有的交换路径 多跳为3
