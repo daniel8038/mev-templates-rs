@@ -11,6 +11,8 @@ pub struct NewBlock {
     pub base_fee: U256,
     pub next_base_fee: U256,
 }
+//变体 统一处理不同类型的事件
+// 可以在 match 中优雅地处理各种情况
 #[derive(Debug, Clone)]
 pub enum Event {
     Block(NewBlock),
@@ -37,5 +39,19 @@ pub async fn stream_new_block(provider: Arc<Provider<Ws>>, event_sender: Sender<
             Ok(_) => {}
             Err(_) => {}
         }
+    }
+}
+pub async fn stream_pending_transactions(provider: Arc<Provider<Ws>>, event_sender: Sender<Event>) {
+    let stream = provider.subscribe_pending_txs().await.unwrap();
+    let mut stream = stream.transactions_unordered(256).fuse();
+
+    while let Some(result) = stream.next().await {
+        match result {
+            Ok(tx) => match event_sender.send(Event::PendingTx(tx)) {
+                Ok(_) => {}
+                Err(_) => {}
+            },
+            Err(_) => {}
+        };
     }
 }
